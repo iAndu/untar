@@ -89,9 +89,9 @@ class App(object):
     class Settings(object):
         def __init__(self, 
                      browser='chrome',
-                     keep_archives=True, 
+                     keep_archives=False, 
                      folder_format='%s',
-                     verbose_level=2,
+                     verbose_level=1,
                      first_port=8080):
             self.browser = browser
 
