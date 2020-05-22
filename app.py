@@ -108,7 +108,7 @@ class App(object):
             else:
                 self.folder_format = folder_format
 
-            self._archive_regex = re.compile(r'node([a-zA-Z]+)_log\.tgz')
+            self._archive_regex = re.compile(r'node(.*)_log\.tgz')
             self.verbose_level = verbose_level
             self.first_port = first_port
 
