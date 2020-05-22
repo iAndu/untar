@@ -15,7 +15,7 @@ class LogLocation(object):
 
     def start_osc(self):
         if self.process is not None:
-            print('{} -> {}'.format(self.log.node_name + self.id, self.port))
+            print('{}.{} -> {}'.format(self.log.node_name, self.id, self.port))
             return
 
         self.port = App._get_next_free_port()
@@ -24,7 +24,7 @@ class LogLocation(object):
         osc_files = ' '.join([os.path.join(self.folder, 'ipstrc.' + ext) for ext in ['drw', 'dmp']])
 
         self.process = subprocess.Popen('oscilloscope.exe {} {}'.format(osc_options, osc_files))
-        print('{} -> {}'.format(self.log.node_name + self.id, self.port))
+        print('{}.{} -> {}'.format(self.log.node_name, self.id, self.port))
         subprocess.run('{}http://localhost:{}'.format(App.settings._browser_start_string, self.port),
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.STDOUT,

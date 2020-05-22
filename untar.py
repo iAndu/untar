@@ -40,15 +40,14 @@ def main():
         cmd = tokens.pop(0)
 
         if "oscilloscope".startswith(cmd):
-            pattern = re.compile(r'([a-zA-Z]+)((?:$|\d+))')
+            pattern = re.compile(r'([\w\d]+)(?:\.(\d+))?')
             threads = []
 
             for token in tokens:
                 match = pattern.match(token)
                 if match:
                     node = match.group(1)
-                    location = match.group(2)
-                    location = location if location != '' else '1'
+                    location = match.group(2) if match.group(2) is not None else '1'
                     t = Thread(target=App.start_osc, args=(node, location))
                     t.start()
                     threads.append(t)
