@@ -157,8 +157,9 @@ class App(object):
     @classmethod
     def _get_next_free_port(cls):
         with cls.__lock:
-            while cls.__is_port_in_use(cls._next_free_port):
-                cls._next_free_port += 1
-            cls._next_free_port += 1
-        return cls._next_free_port
+            port = cls._next_free_port
+            while cls.__is_port_in_use(port):
+                port += 1
+            cls._next_free_port = port + 1
+        return port
     
