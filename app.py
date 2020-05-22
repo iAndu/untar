@@ -114,7 +114,7 @@ class App(object):
 
     settings = Settings()
     _logs = {}
-    _current_port = settings.first_port
+    _next_free_port = settings.first_port
     __lock = Lock()
 
     @classmethod
@@ -157,7 +157,8 @@ class App(object):
     @classmethod
     def _get_next_free_port(cls):
         with cls.__lock:
-            while cls.__is_port_in_use(cls._current_port):
-                cls._current_port += 1
-        return cls._current_port
+            while cls.__is_port_in_use(cls._next_free_port):
+                cls._next_free_port += 1
+            cls._next_free_port += 1
+        return cls._next_free_port
     
