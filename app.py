@@ -1,123 +1,16 @@
 from threading import Thread, Lock
+from log import Log
 import re
-import shutil
 import os
-import subprocess
 from cmd import Cmd
 import settings
 from utils import get_next_free_port
-
-class LogLocation(object):
-    LOCATION_REGEX = re.compile(r'location(?P<id>[1-9][0-9]*)')
-    assert(LOCATION_REGEX.groups == 1)
-
-    def __init__(self, log, location):
-        super().__init__()
-        self.log = log
-        self.id = self.LOCATION_REGEX.match(location).group('id')
-        self.folder = os.path.join(self.log.folder, location)
-        self.port = 0
-        self.process = None
-
-    def start_osc(self):
-        """Start oscilloscope for this location."""
-
-        # If process is already running, print the port on which it can be
-        # found
-        if self.process is not None:
-            print('{}.{} -> {}'.format(self.log.node_name, self.id, self.port))
-            return
-
-        print('Starting oscilloscope on node {} location {}...'\
-                                          .format(self.log.node_name, self.id))
-        self.port = App.get_free_port()
-
-        # Set the oscilloscope port and file paths to use
-        osc_options = '-p {}'.format(self.port)
-        osc_files = ' '.join([os.path.join(self.folder, 'ipstrc.' + ext)
-                              for ext in ['drw', 'dmp']])
-        osc_cmd = 'oscilloscope.exe {} {}'.format(osc_options, osc_files)
-
-        print('{}.{} -> {}'.format(self.log.node_name, self.id, self.port))
-        self.process = subprocess.Popen(osc_cmd,
-                                        stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.STDOUT,
-                                        shell=True)
-        browser_cmd = '{}http://localhost:{}'\
-                        .format(settings.settings._browser_start_string, self.port)
-        subprocess.Popen(browser_cmd,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.STDOUT,
-                        shell=True)
-
-class Log(object):
-    def __init__(self, archive):
-        """Log constructor.
-
-        Arguments:
-            archive {str} -- Path to the archive to create log for.
-        """
-
-        super().__init__()
-        pattern = re.compile(settings.settings._archive_regex)
-        self.archive = archive
-        self.node_name = pattern.match(self.archive).group(1).capitalize()
-        self.folder = settings.settings.folder_format % self.node_name
-        self.locations = {}
-
-    def extract(self):
-        """Extract the archive to a folder."""
-
-        # If the folder exists at the current path, remove it.
-        if self.folder in os.listdir():
-            if settings.settings.verbose_level > 1:
-                print('Removing existing folder {}.'.format(self.folder))
-            shutil.rmtree(self.folder)
-
-        # Extract the archive.
-        if settings.settings.verbose_level > 1:
-            print('Extracting archive {} to {}.'.format(self.archive,
-                                                        self.folder))
-        shutil.unpack_archive(self.archive, self.folder)
-
-        # Remove the archive if needed.
-        if not settings.settings.keep_archives:
-            if settings.settings.verbose_level > 1:
-                print('Removing archive {}'.format(self.archive))
-            os.remove(self.archive)
-
-        # Create the node locations objects.
-        self.__init_locations()
-    
-    def start_osc(self, location_id):
-        """Start oscilloscope on the specified location.
-
-        Arguments:
-            location_id {str} -- The location id on which to start
-                                 oscilloscope.
-        """
-        try:
-            self.locations[location_id].start_osc()
-        except KeyError:
-             print('Location {} does not exist on node {}.'.format(location_id,
-                                                               self.node_name))
-
-    def __init_locations(self):
-        """Create the locations for this node log."""
-
-        # Get the location folders directly under the log folder.
-        subdirs = next(os.walk(self.folder))[1]
-        locations = filter(lambda x: LogLocation.LOCATION_REGEX.match(x),
-                           subdirs)
-
-        for location in locations:
-            log_location = LogLocation(self, location)
-            self.locations[log_location.id] = log_location
 
 class App(Cmd):
     __instance = None
     __lock = Lock()
     _next_free_port = None
+    COMMANDS = ['oscilloscope', 'exit']
 
     def __init__(self):
         assert(settings.settings is not None)
@@ -127,67 +20,65 @@ class App(Cmd):
         else:
             super().__init__()
             self.logs = {}
-            self.__lock = Lock()
             App._next_free_port = settings.settings.first_port
             App.__instance = self
 
     @classmethod
-    def getInstance(cls):
+    def get_instance(cls):
         """Get the App instance.
 
         Returns:
             App -- the App instance
         """
+
         if cls.__instance is None:
             cls()
         return cls.__instance
 
-    def start_osc(self, node, location_id):
+    def start_osc(self, node, location_id=None):
         """Start oscilloscope on the specified node and location.
 
         Arguments:
-            node {str} -- The node name.  Examples: 'Ap', 'P1'
-            location_id {str} -- The location ID.  Examples: '1', '2'.
+            node {str} -- The node name.
+            location_id {None, str} -- The location ID.
         """
-
-        if not os.path.exists(settings.settings.osc_path):
-            print('Oscilloscope not present at {}.'.format(settings.settings.osc_path))
-            return
-
-        node = node.lower()
 
         try:
-            self.logs[node].start_osc(location_id)
+            self.logs[node.lower()].start_osc(location_id)
         except KeyError:
             print('Node {} does not exist.'.format(node.capitalize()))
-            return
+        finally:
+            return self
 
-    @classmethod
-    def get_free_port(cls):
-        """Get an available port number.
+    def load_existing_logs(self):
+        # Match on folders based on the folder format given, placing a group in
+        # order to get the name of the node.  Append a look-behind at the end
+        # to exclude the archives, if they exist and match on the pattern.
+        p = re.compile((settings.settings.folder_format % '(.*)') +
+                                                                 '(?<!\.tgz)$')
+        existing_logs = filter(lambda x: p.match(x), os.listdir())
 
-        Returns:
-            int -- Available port number.
-        """
-        with cls.__lock:
-            port = get_next_free_port(cls._next_free_port)
-            cls._next_free_port = port + 1
-        return port
+        # Create the Log objects and map their locations.
+        for log in existing_logs:
+            log = Log(p.match(log).group(1))._map_locations()
+            self.logs[log.node_name.lower()] = log
+
+        return self
 
     def extract_archives(self):
         """Extract archives to folders."""
 
         # Get all the archives matching the given pattern
-        p = re.compile(settings.settings._archive_regex)
+        p = Log.ARCHIVE_REGEX
         archives = filter(lambda x: p.match(x), os.listdir())
 
         if settings.settings.verbose_level > 0:
             print('Extracting archives...')
 
-        # Build the Log objects and start threads to extract them.
+        # Build the Log objects and start threads to extract them
         threads = []
         for arch in archives:
-            log = Log(arch)
+            log = Log(p.match(arch).group(1), arch)
             self.logs[log.node_name.lower()] = log
             threads.append(Thread(target=log.extract))
             threads[-1].start()
@@ -197,7 +88,101 @@ class App(Cmd):
 
         if settings.settings.verbose_level > 0:
             print('Extraction complete.')
-    
-    def start(self):
-        self.extract_archives()
-        self.cmdloop()
+        
+        return self
+
+    def preloop(self):
+        """Hook method executed once when the cmdloop() method is called."""
+
+        self.load_existing_logs().extract_archives()
+
+        if not settings.settings.no_open:
+            self.do_oscilloscope(None)
+
+    def postloop(self):
+        for node in self.logs.values():
+            node.stop_osc(None)
+
+    def parseline(self, line):
+        """Parse the line into a command name and a string containing the
+        arguments.  Returns a tuple containing (command, args, line).
+        'command' and 'args' may be None if the line couldn't be parsed.
+        If 'command' is a prefix of a command from App.COMMANDS, that one will
+        be returned.
+
+        Arguments:
+            line {str} -- The line input given by user.
+
+        Returns:
+            {tuple} -- The tuple of (command, args, line)
+        """
+        
+        cmd, arg, line = super().parseline(line)
+
+        if cmd is not None:
+            possible_commands = list(filter(lambda x: x.startswith(cmd),
+                                            self.COMMANDS))
+            if len(possible_commands) == 1:
+                cmd = possible_commands[0]
+        
+        return cmd, arg, line
+
+    def emptyline(self):
+        """Called when empty line is entered.  Does nothing."""
+        pass
+
+    def do_oscilloscope(self, args):
+        """Run oscilloscope command for the given arguments.
+
+        Arguments:
+            args {None, str} -- String containing the command parameters.
+            
+        Returns:
+            bool -- False in order to continue the CLI loop.
+        """
+
+        if not os.path.exists(settings.settings.osc_path):
+            print('Oscilloscope not present at {}.'\
+                  .format(settings.settings.osc_path))
+            return False
+
+        if not args:
+            # Create a list of dictionaries containing all available nodes.
+            log_dicts = map(lambda x: {'node': x, 'location_id': None},
+                            self.logs.keys())
+        else:
+            # Get a list of {node, location_id} that match in the arguments
+            p = re.compile(r'(?P<node>[\w\d]+)(?:\.(?P<location_id>.*))?')
+            matches = filter(lambda x: x != '' and p.match(x), args.split(' '))
+            log_dicts = list(map(lambda x: p.match(x).groupdict(default='1'),
+                                 matches))
+
+            # * is a wildcard for locations which should match all available
+            # locations.  We change the '*' to None in order to start all
+            # locations.
+            for log_dict in log_dicts:
+                if log_dict['location_id'] == '*':
+                    log_dict['location_id'] = None
+
+        # Start oscilloscope on the matching nodes
+        threads = []
+        for log_dict in log_dicts:
+            threads.append(Thread(target=self.start_osc,
+                                  args=(log_dict.values())))
+            threads[-1].start()
+        for t in threads:
+            t.join()
+
+        return False
+
+    def do_exit(self, args):
+        """Close the CLI interface.
+
+        Arguments:
+            args {None, str} -- Arguments - will be ignored.
+
+        Returns:
+            bool -- True in order to stop the CLI loop.
+        """
+
+        return True

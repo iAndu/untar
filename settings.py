@@ -1,5 +1,3 @@
-import re
-
 global settings
 settings = None
 
@@ -9,9 +7,10 @@ class Settings(object):
     def __init__(self, 
                 browser='chrome',
                 keep_archives=True, 
+                first_port=8080,
+                no_open=True,
                 folder_format='node%s',
                 verbose_level=1,
-                first_port=8080,
                 osc_path='oscilloscope.exe'):
         if Settings.__instance is not None:
             raise Exception('Settings is a singleton class!')
@@ -29,11 +28,11 @@ class Settings(object):
         else:
             self.folder_format = folder_format
 
-        self.keep_archives = True
+        self.keep_archives = keep_archives
         self.first_port = first_port
+        self.no_open = no_open
         self.verbose_level = verbose_level
         self.osc_path = osc_path
-        self._archive_regex = r'node(.*)_log\.tgz'
     
     @classmethod
     def get_instance(cls):
