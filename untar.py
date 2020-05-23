@@ -3,11 +3,10 @@ import argparse
 import re
 from threading import Thread
 from app import App
-
-parser = None
+import settings
+from settings import Settings
 
 def build_parser():
-    global parser
     parser = argparse.ArgumentParser(description='Unpack logs and open oscilloscope in browser for each IPS trace. Run in a directory with the packed logs and the oscilloscope executable.')
     parser.prog = "untar.exe"
 
@@ -22,12 +21,16 @@ def build_parser():
     parser.add_argument("--port", '-p', default=8080, type=int, help="First port to use")
     parser.add_argument("--keep", '-k', action="store_true", help="Keep .tgz files")
 
+    return parser
+
 # def close_procs():
 #     for p, _ in processes.values():
 #         p.kill()
 
 def main():
-    App.extract_archives()
+    # App().start()
+    app = App()
+    app.extract_archives()
 
     op = input('CLI ready\n').strip().lower()
 
@@ -47,8 +50,8 @@ def main():
                 match = pattern.match(token)
                 if match:
                     node = match.group(1)
-                    location = match.group(2) if match.group(2) is not None else '1'
-                    t = Thread(target=App.start_osc, args=(node, location))
+                    location_id = match.group(2) if match.group(2) is not None else '1'
+                    t = Thread(target=app.start_osc, args=(node, location_id))
                     t.start()
                     threads.append(t)
 
@@ -59,17 +62,10 @@ def main():
 if __name__ == "__main__":
     # atexit.register(close_procs)
 
-    build_parser()
+    args = build_parser().parse_args()
 
-    args = parser.parse_args()
-
-    PORT = args.port
-    browser = args.browser
-    # if browser == "edge":
-    #     browser_start_string += "microsoft-edge:"
-    # else:
-    #     browser_start_string += browser + " "
-    start_browser = args.no_open
-    keep_files = args.keep
+    settings.settings = Settings(browser=args.browser,
+                                 keep_archives=args.keep,
+                                 first_port=args.port)
 
     main()

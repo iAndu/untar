@@ -3,163 +3,201 @@ import re
 import shutil
 import os
 import subprocess
-import socket
+from cmd import Cmd
+import settings
+from utils import get_next_free_port
 
 class LogLocation(object):
-    def __init__(self, log, id):
+    LOCATION_REGEX = re.compile(r'location(?P<id>[1-9][0-9]*)')
+    assert(LOCATION_REGEX.groups == 1)
+
+    def __init__(self, log, location):
+        super().__init__()
         self.log = log
-        self.id = id
-        self.folder = os.path.join(self.log.folder, 'location{}'.format(self.id))
+        self.id = self.LOCATION_REGEX.match(location).group('id')
+        self.folder = os.path.join(self.log.folder, location)
         self.port = 0
         self.process = None
 
     def start_osc(self):
+        """Start oscilloscope for this location."""
+
+        # If process is already running, print the port on which it can be
+        # found
         if self.process is not None:
             print('{}.{} -> {}'.format(self.log.node_name, self.id, self.port))
             return
 
-        self.port = App._get_next_free_port()
+        print('Starting oscilloscope on node {} location {}...'\
+                                          .format(self.log.node_name, self.id))
+        self.port = App.get_free_port()
 
+        # Set the oscilloscope port and file paths to use
         osc_options = '-p {}'.format(self.port)
-        osc_files = ' '.join([os.path.join(self.folder, 'ipstrc.' + ext) for ext in ['drw', 'dmp']])
+        osc_files = ' '.join([os.path.join(self.folder, 'ipstrc.' + ext)
+                              for ext in ['drw', 'dmp']])
+        osc_cmd = 'oscilloscope.exe {} {}'.format(osc_options, osc_files)
 
-        self.process = subprocess.Popen('oscilloscope.exe {} {}'.format(osc_options, osc_files))
         print('{}.{} -> {}'.format(self.log.node_name, self.id, self.port))
-        subprocess.run('{}http://localhost:{}'.format(App.settings._browser_start_string, self.port),
+        self.process = subprocess.Popen(osc_cmd,
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.STDOUT,
+                                        shell=True)
+        browser_cmd = '{}http://localhost:{}'\
+                        .format(settings.settings._browser_start_string, self.port)
+        subprocess.Popen(browser_cmd,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.STDOUT,
                         shell=True)
 
 class Log(object):
-    default_node = 1
-
     def __init__(self, archive):
+        """Log constructor.
+
+        Arguments:
+            archive {str} -- Path to the archive to create log for.
+        """
+
+        super().__init__()
+        pattern = re.compile(settings.settings._archive_regex)
         self.archive = archive
-
-        pattern = App.settings._archive_regex
-        try:
-            self.node_name = pattern.match(self.archive).group(1).capitalize()
-        except:
-            print('Archive {} does not match pattern {}. Using default name {}'.format(self.archive, pattern, self.default_node))
-            self.node_name = str(self.default_node)
-            self.default_node += 1
-
-        self.folder = App.settings.folder_format % (self.node_name)
+        self.node_name = pattern.match(self.archive).group(1).capitalize()
+        self.folder = settings.settings.folder_format % self.node_name
         self.locations = {}
 
     def extract(self):
+        """Extract the archive to a folder."""
+
+        # If the folder exists at the current path, remove it.
         if self.folder in os.listdir():
-            if App.settings.verbose_level > 1:
+            if settings.settings.verbose_level > 1:
                 print('Removing existing folder {}.'.format(self.folder))
             shutil.rmtree(self.folder)
 
-        if App.settings.verbose_level > 1:
-            print('Extracting archive {} to {}.'.format(self.archive, self.folder))
+        # Extract the archive.
+        if settings.settings.verbose_level > 1:
+            print('Extracting archive {} to {}.'.format(self.archive,
+                                                        self.folder))
         shutil.unpack_archive(self.archive, self.folder)
 
-        if not App.settings.keep_archives:
-            if App.settings.verbose_level > 1:
+        # Remove the archive if needed.
+        if not settings.settings.keep_archives:
+            if settings.settings.verbose_level > 1:
                 print('Removing archive {}'.format(self.archive))
             os.remove(self.archive)
 
+        # Create the node locations objects.
         self.__init_locations()
     
-    def start_osc(self, locationId):
-        if not os.path.exists('oscilloscope.exe'):
-            print('Oscilloscope not present in root folder. First copy it there.')
-            return
+    def start_osc(self, location_id):
+        """Start oscilloscope on the specified location.
 
-        if locationId not in self.locations:
-            print('Location {} does not exist on node {}.'.format(locationId, self.node_name))
-            return
-
-        self.locations[locationId].start_osc()
+        Arguments:
+            location_id {str} -- The location id on which to start
+                                 oscilloscope.
+        """
+        try:
+            self.locations[location_id].start_osc()
+        except KeyError:
+             print('Location {} does not exist on node {}.'.format(location_id,
+                                                               self.node_name))
 
     def __init_locations(self):
+        """Create the locations for this node log."""
+
+        # Get the location folders directly under the log folder.
         subdirs = next(os.walk(self.folder))[1]
-        location_regex = re.compile(r'location([0-9]+)')
-        locations = [ subdir for subdir in subdirs if location_regex.match(subdir) ]
+        locations = filter(lambda x: LogLocation.LOCATION_REGEX.match(x),
+                           subdirs)
 
         for location in locations:
-            locationId = location_regex.match(location).group(1)
-            log_location = LogLocation(self, locationId)
-            self.locations[locationId] = log_location
+            log_location = LogLocation(self, location)
+            self.locations[log_location.id] = log_location
 
-class App(object):
-    class Settings(object):
-        def __init__(self, 
-                     browser='chrome',
-                     keep_archives=False, 
-                     folder_format='%s',
-                     verbose_level=1,
-                     first_port=8080):
-            self.browser = browser
-
-            self._browser_start_string = 'start '
-            if self.browser == "edge":
-                self._browser_start_string += "microsoft-edge:"
-            else:
-                self._browser_start_string += self.browser + " "
-
-            self.keep_archives = keep_archives
-
-            if '%s' not in folder_format:
-                print('Folder format invalid. Defaulting to "%s".')
-            else:
-                self.folder_format = folder_format
-
-            self._archive_regex = re.compile(r'node(.*)_log\.tgz')
-            self.verbose_level = verbose_level
-            self.first_port = first_port
-
-    settings = Settings()
-    _logs = {}
-    _next_free_port = settings.first_port
+class App(Cmd):
+    __instance = None
     __lock = Lock()
+    _next_free_port = None
+
+    def __init__(self):
+        assert(settings.settings is not None)
+
+        if App.__instance != None:
+            raise Exception('This class is a singleton!')
+        else:
+            super().__init__()
+            self.logs = {}
+            self.__lock = Lock()
+            App._next_free_port = settings.settings.first_port
+            App.__instance = self
 
     @classmethod
-    def start_osc(cls, node, locationId):
+    def getInstance(cls):
+        """Get the App instance.
+
+        Returns:
+            App -- the App instance
+        """
+        if cls.__instance is None:
+            cls()
+        return cls.__instance
+
+    def start_osc(self, node, location_id):
+        """Start oscilloscope on the specified node and location.
+
+        Arguments:
+            node {str} -- The node name.  Examples: 'Ap', 'P1'
+            location_id {str} -- The location ID.  Examples: '1', '2'.
+        """
+
+        if not os.path.exists(settings.settings.osc_path):
+            print('Oscilloscope not present at {}.'.format(settings.settings.osc_path))
+            return
+
         node = node.lower()
 
-        if node not in cls._logs:
+        try:
+            self.logs[node].start_osc(location_id)
+        except KeyError:
             print('Node {} does not exist.'.format(node.capitalize()))
             return
-        
-        cls._logs[node.lower()].start_osc(locationId)
 
     @classmethod
-    def extract_archives(cls):
-        pattern = cls.settings._archive_regex
-        archives = [ f for f in os.listdir() if pattern.match(f) ]
-        threads = []
+    def get_free_port(cls):
+        """Get an available port number.
 
-        if cls.settings.verbose_level > 0:
+        Returns:
+            int -- Available port number.
+        """
+        with cls.__lock:
+            port = get_next_free_port(cls._next_free_port)
+            cls._next_free_port = port + 1
+        return port
+
+    def extract_archives(self):
+        """Extract archives to folders."""
+
+        # Get all the archives matching the given pattern
+        p = re.compile(settings.settings._archive_regex)
+        archives = filter(lambda x: p.match(x), os.listdir())
+
+        if settings.settings.verbose_level > 0:
             print('Extracting archives...')
 
+        # Build the Log objects and start threads to extract them.
+        threads = []
         for arch in archives:
             log = Log(arch)
-            cls._logs[log.node_name.lower()] = log
-            t = Thread(target=log.extract)
-            t.start()
-            threads.append(t)
+            self.logs[log.node_name.lower()] = log
+            threads.append(Thread(target=log.extract))
+            threads[-1].start()
 
         for t in threads:
             t.join()
 
-        if cls.settings.verbose_level > 0:
+        if settings.settings.verbose_level > 0:
             print('Extraction complete.')
-
-    @staticmethod
-    def __is_port_in_use(port):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            return s.connect_ex(('localhost', port)) == 0
-
-    @classmethod
-    def _get_next_free_port(cls):
-        with cls.__lock:
-            port = cls._next_free_port
-            while cls.__is_port_in_use(port):
-                port += 1
-            cls._next_free_port = port + 1
-        return port
     
+    def start(self):
+        self.extract_archives()
+        self.cmdloop()
