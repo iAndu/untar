@@ -111,7 +111,7 @@ class Log(object):
                                                   self.node_name.capitalize()))
         else:
             for location in self.locations.values():
-                location.stop_osc()
+                location.stop_osc(verbose=False)
 
         return self
 
@@ -169,7 +169,7 @@ class Log(object):
                                         self.port))
                 return self
 
-            print('Starting oscilloscope on node {} location {}...'\
+            print('Starting oscilloscope on {}.{}...'\
                                        .format(self.log.node_name.capitalize(),
                                                self.id.capitalize()))
             if self.port is None:
@@ -197,7 +197,7 @@ class Log(object):
             
             return self
 
-        def stop_osc(self):
+        def stop_osc(self, verbose=True):
             """Stop oscilloscope process.
 
             Returns:
@@ -205,7 +205,13 @@ class Log(object):
             """
 
             if self.osc_proc is not None:
+                print('Stopping oscilloscope on {}.{}'\
+                                          .format(self.log.node_name, self.id))
                 self.osc_proc.kill()
                 self.osc_proc = None
+            else:
+                if verbose:
+                    print('Oscilloscope not running on {}.{}'\
+                                          .format(self.log.node_name, self.id))
             
             return self

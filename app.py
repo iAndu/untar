@@ -7,10 +7,13 @@ import settings
 from utils import get_next_free_port
 
 class App(Cmd):
+    COMMANDS = ['oscilloscope', 'exit', 'kill']
+
+    prompt = '> '
+    intro = 'CLI started'
     __instance = None
     __lock = Lock()
     _next_free_port = None
-    COMMANDS = ['oscilloscope', 'exit']
 
     def __init__(self):
         assert(settings.settings is not None)
@@ -141,14 +144,53 @@ class App(Cmd):
         """Called when empty line is entered.  Does nothing."""
         pass
 
-    def do_oscilloscope(self, args):
-        """Run oscilloscope command for the given arguments.
+    @staticmethod
+    def __parse_node_args(args):
+        """Get a list of {node, location_id} dictionaries containing the
+        information present in args for the matching tokens, ignoring the
+        others.
 
         Arguments:
-            args {None, str} -- String containing the command parameters.
-            
+            args {str} -- String containing the arguments.
+
         Returns:
-            bool -- False in order to continue the CLI loop.
+            list -- List of mentioned dictionaries.
+        """
+
+        # Get a list of {node, location_id} that match in the arguments.
+        # Currently, nodes can contain only characters in the \w metacharacter,
+        # while the location can be any string as long as it's continuous.
+        p = re.compile(r'(?P<node>[\w]+)(?:\.(?P<location_id>.*))?')
+        matches = filter(lambda x: x != '' and p.match(x), args.split(' '))
+        log_dicts = list(map(lambda x: p.match(x).groupdict(default='1'),
+                             matches))
+
+        # * is a wildcard for locations which should match all available
+        # locations.  We change the '*' to None in order to start all
+        # locations.
+        for log_dict in log_dicts:
+            if log_dict['location_id'] == '*':
+                log_dict['location_id'] = None
+
+        return log_dicts
+
+    def do_oscilloscope(self, args):
+        """\
+        Run oscilloscope command for the given arguments. If no arguments are
+        passed, start oscilloscope on all available nodes and locations.
+
+        Arguments:
+            args {None, str} -- String containing the command arguments.  Must
+                                follow a format of {node}.{location}, with an
+                                empty space between multiple inputs.  If only
+                                the {node} is specified, it will start
+                                oscilloscope on the {location} with id '1'.
+                                {node}.* can also be used as an argument in
+                                order to start oscilloscope process on all 
+                                available locations on {node}.  Both {node} and
+                                {location} are case-insensitive.
+
+                                Examples: 'ap.1 p2 F.*'.
         """
 
         if not os.path.exists(settings.settings.osc_path):
@@ -156,25 +198,18 @@ class App(Cmd):
                   .format(settings.settings.osc_path))
             return False
 
+        # Parse the args string to retreive the node-location pairs.  If the
+        # args is None or empty, we're going to run oscilloscope on all nodes,
+        # so we create a list of {node, location_id} dictionaries where the
+        # location_id is None in order to start oscilloscope on all available
+        # locations.
         if not args:
-            # Create a list of dictionaries containing all available nodes.
             log_dicts = map(lambda x: {'node': x, 'location_id': None},
                             self.logs.keys())
         else:
-            # Get a list of {node, location_id} that match in the arguments
-            p = re.compile(r'(?P<node>[\w\d]+)(?:\.(?P<location_id>.*))?')
-            matches = filter(lambda x: x != '' and p.match(x), args.split(' '))
-            log_dicts = list(map(lambda x: p.match(x).groupdict(default='1'),
-                                 matches))
+            log_dicts = self.__parse_node_args(args)
 
-            # * is a wildcard for locations which should match all available
-            # locations.  We change the '*' to None in order to start all
-            # locations.
-            for log_dict in log_dicts:
-                if log_dict['location_id'] == '*':
-                    log_dict['location_id'] = None
-
-        # Start oscilloscope on the matching nodes
+        # Start oscilloscope on the matching node-location pairs.
         threads = []
         for log_dict in log_dicts:
             threads.append(Thread(target=self.start_osc,
@@ -186,13 +221,36 @@ class App(Cmd):
         return False
 
     def do_exit(self, args):
-        """Close the CLI interface.
-
-        Arguments:
-            args {None, str} -- Arguments - will be ignored.
-
-        Returns:
-            bool -- True in order to stop the CLI loop.
+        """\
+        Close the CLI interface.
         """
 
         return True
+
+    def do_kill(self, args):
+        """\
+        Stop oscilloscope process on the given arguments.
+
+        Arguments:
+            args {str} -- String containing the command arguments.  Must follow
+                          a format of {node}.{location}, with an empty space
+                          empty spaces between multiple inputs.  If only the
+                          {node} is specified, it will stop oscilloscope on the
+                          {location} with id '1'.  {node}.* can also be used as
+                          an argument in order to stop oscilloscope process on
+                          all available locations on {node}.  Both {node} and
+                          {location} are case-insensitive.
+
+                          Examples: 'ap.1 p2 F.*'.
+        """
+
+        if args is not None:
+            log_dicts = self.__parse_node_args(args)
+            
+            for log in log_dicts:
+                try:
+                    self.logs[log['node'].lower()].stop_osc(log['location_id'])
+                except KeyError:
+                    print('Node {} does not exist.'\
+                                             .format(log['node'].capitalize()))
+        return False
