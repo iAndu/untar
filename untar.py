@@ -16,20 +16,20 @@ def build_parser():
                     choices=['chrome', 'opera', 'firefox', 'edge'],
                     help='The browser used to open traces (default: %(default)s)')
 
-    parser.add_argument('--no-open', '-n', action="store_false", help="Don't open in browser")
+    parser.add_argument('--start-all', '-s', action="store_true", help="Start oscilloscope on all nodes right away")
     parser.add_argument("--port", '-p', default=8080, type=int, help="First port to use")
     parser.add_argument("--keep", '-k', action="store_true", help="Keep .tgz files")
 
     return parser
 
 def main():
-    settings.settings = Settings(browser=args.browser,
-                                 keep_archives=args.keep,
-                                 first_port=args.port,
-                                 no_open=args.no_open)
     utils.init()
     App().cmdloop()
             
 if __name__ == "__main__":
     args = build_parser().parse_args()
+    settings.settings = Settings(browser=args.browser,
+                                 keep_archives=args.keep,
+                                 first_port=args.port,
+                                 start_all=args.start_all)
     main()

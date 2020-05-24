@@ -6,9 +6,9 @@ class Settings(object):
 
     def __init__(self, 
                 browser='chrome',
-                keep_archives=True, 
+                keep_archives=False, 
                 first_port=8080,
-                no_open=True,
+                start_all=False,
                 folder_format='node%s',
                 verbose_level=1,
                 osc_path='oscilloscope.exe'):
@@ -30,7 +30,7 @@ class Settings(object):
 
         self.keep_archives = keep_archives
         self.first_port = first_port
-        self.no_open = no_open
+        self.start_all = start_all
         self.verbose_level = verbose_level
         self.osc_path = osc_path
     

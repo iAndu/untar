@@ -1,0 +1,4 @@
+node*
+.vscode
+oscilloscope*
+__pycache__

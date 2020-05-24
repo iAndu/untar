@@ -51,22 +51,32 @@ class App(Cmd):
             return self
 
     def load_existing_logs(self):
+        """Load the already extracted nodes.
+
+        Returns:
+            App -- self
+        """
+
         # Match on folders based on the folder format given, placing a group in
         # order to get the name of the node.  Append a look-behind at the end
         # to exclude the archives, if they exist and match on the pattern.
-        p = re.compile((settings.settings.folder_format % '(.*)') +
-                                                                 '(?<!\.tgz)$')
+        folder_format = settings.settings.folder_format
+        p = re.compile((folder_format % r'(.*)') + r'(?<!\.tgz)$')
         existing_logs = filter(lambda x: p.match(x), os.listdir())
 
         # Create the Log objects and map their locations.
         for log in existing_logs:
-            log = Log(p.match(log).group(1))._map_locations()
+            log = Log(p.match(log).group(1))
             self.logs[log.node_name.lower()] = log
 
         return self
 
     def extract_archives(self):
-        """Extract archives to folders."""
+        """Extract archives to folders.
+
+        Returns:
+            App -- self
+        """
 
         # Get all the archives matching the given pattern
         p = Log.ARCHIVE_REGEX
@@ -96,7 +106,7 @@ class App(Cmd):
 
         self.load_existing_logs().extract_archives()
 
-        if not settings.settings.no_open:
+        if settings.settings.start_all:
             self.do_oscilloscope(None)
 
     def postloop(self):

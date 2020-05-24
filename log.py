@@ -26,6 +26,7 @@ class Log(object):
         self.node_name = node_name.capitalize()
         self.folder = settings.settings.folder_format % self.node_name
         self.locations = {}
+        self.__map_locations()
 
     def extract(self):
         """Extract the archive to a folder.
@@ -60,7 +61,7 @@ class Log(object):
             os.remove(self.archive)
 
         # Create the node locations objects.
-        return self._map_locations()
+        return self.__map_locations()
     
     def start_osc(self, location_id=None):
         """Start oscilloscope on the specified location.
@@ -114,21 +115,23 @@ class Log(object):
 
         return self
 
-    def _map_locations(self):
+    def __map_locations(self):
         """Create the locations for this node log.
         
         Returns:
             Log -- self
         """
 
-        # Get the location folders directly under the log folder.
-        subdirs = next(os.walk(self.folder))[1]
-        locations = filter(lambda x: self.LogLocation.LOCATION_REGEX.match(x),
-                           subdirs)
+        if os.path.exists(self.folder):
+            # Get the location folders directly under the log folder.
+            subdirs = next(os.walk(self.folder))[1]
+            p = self.LogLocation.LOCATION_REGEX
+            locations = filter(lambda x: p.match(x), subdirs)
 
-        for location in locations:
-            log_location = self.LogLocation(self, location)
-            self.locations[log_location.id.lower()] = log_location
+            # Create the location objects
+            for location in locations:
+                log_location = self.LogLocation(self, location)
+                self.locations[log_location.id.lower()] = log_location
         
         return self
 
@@ -149,7 +152,7 @@ class Log(object):
             self.id = self.LOCATION_REGEX.match(location).group('id')
             self.folder = os.path.join(self.log.folder, location)
             self.port = None
-            self.process = None
+            self.osc_proc = None
 
         def start_osc(self):
             """Start oscilloscope for this location.
@@ -160,7 +163,7 @@ class Log(object):
 
             # If process is already running, print the port on which it can be
             # found
-            if self.process is not None:
+            if self.osc_proc is not None:
                 print('{}.{} -> {}'.format(self.log.node_name.capitalize(),
                                         self.id.capitalize(),
                                         self.port))
@@ -181,17 +184,16 @@ class Log(object):
             print('{}.{} -> {}'.format(self.log.node_name.capitalize(),
                                     self.id.capitalize(),
                                     self.port))
-            self.process = subprocess.Popen(osc_cmd,
-                                            stdout=subprocess.DEVNULL,
-                                            stderr=subprocess.STDOUT,
-                                            shell=True)
+            self.osc_proc = subprocess.Popen(osc_cmd,
+                                             stdout=subprocess.DEVNULL,
+                                             stderr=subprocess.STDOUT)
             browser_cmd = '{}http://localhost:{}'\
                             .format(settings.settings._browser_start_string,
                                     self.port)
-            subprocess.Popen(browser_cmd,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.STDOUT,
-                            shell=True)
+            self.browser_proc = subprocess.Popen(browser_cmd,
+                                                 stdout=subprocess.DEVNULL,
+                                                 stderr=subprocess.STDOUT,
+                                                 shell=True)
             
             return self
 
@@ -202,8 +204,8 @@ class Log(object):
                 LogLocation -- self
             """
 
-            if self.process is not None:
-                self.process.kill()
-                self.process = None
+            if self.osc_proc is not None:
+                self.osc_proc.kill()
+                self.osc_proc = None
             
             return self
